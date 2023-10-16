@@ -1,0 +1,22 @@
+
+name: build
+
+on:
+  push:
+    branches: [ "master","preparation" ]
+  pull_request:
+    branches: [ "master","preparation" ]
+
+jobs:
+  semgrep:
+ 
+    name: semgrep
+    runs-on: ubuntu-latest
+    container:
+         image: returntocorp/semgrep
+    steps:
+     
+      - name: Upload SARIF file
+        uses: actions/checkout@v3
+      - name: Semgrep
+        run: semrep ci --config=auto
