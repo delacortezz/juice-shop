@@ -17,14 +17,34 @@ module.exports = function profileImageUrlUpload () {
     if (req.body.imageUrl !== undefined) {
       const url = req.body.imageUrl
       if (url.match(/(.)*solve\/challenges\/server-side(.)*/) !== null) req.app.locals.abused_ssrf_bug = true
-      const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
-      if (loggedInUser) {
-        const imageRequest = request
-          .get(url)
-          .on('error', function (err: unknown) {
-            UserModel.findByPk(loggedInUser.data.id).then(async (user: UserModel | null) => { return await user?.update({ profileImage: url }) }).catch((error: Error) => { next(error) })
-            logger.warn(`Error retrieving user profile image: ${utils.getErrorMessage(err)}; using image link directly`)
+      const loggedInUser = security.authenticatedUsers.get(req.cookies.token);
+
+if (loggedInUser) {
+  if (isValidURL(url)) {
+    const imageRequest = request
+      .get(url)
+      .on('error', function (err: Error) {
+        UserModel.findByPk(loggedInUser.data.id)
+          .then(async (user: UserModel | null) => {
+            if (user) {
+            
+              if (isValidURL(url)) {
+                await user.update({ profileImage: url });
+              } else 
+                logger.warn(`Untrusted URL for profile image: ${url}`);
+              }
+            }
           })
+          .catch((error: Error) => {
+            next(error);
+          });
+      });
+  } else {
+    logger.warn(`Untrusted URL for profile image: ${url}`);
+  }
+} else {
+
+}
           .on('response', function (res: Response) {
             if (res.statusCode === 200) {
               const ext = ['jpg', 'jpeg', 'png', 'svg', 'gif'].includes(url.split('.').slice(-1)[0].toLowerCase()) ? url.split('.').slice(-1)[0].toLowerCase() : 'jpg'
