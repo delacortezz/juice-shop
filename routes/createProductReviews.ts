@@ -12,20 +12,29 @@ const reviews = require('../data/mongodb').reviews
 const challenges = require('../data/datacache').challenges
 const security = require('../lib/insecurity')
 
-module.exports = function productReviews () {
-  return (req: Request, res: Response) => {
-    const user = security.authenticatedUsers.from(req)
-    challengeUtils.solveIf(challenges.forgedReviewChallenge, () => { return user && user.data.email !== req.body.author })
-    reviews.insert({
-      product: req.params.id,
-      message: req.body.message,
-      author: req.body.author,
-      likesCount: 0,
-      likedBy: []
-    }).then(() => {
-      res.status(201).json({ status: 'success' })
-    }, (err: unknown) => {
-      res.status(500).json(utils.getErrorMessage(err))
-    })
-  }
-}
+module.exports = function productReviews() {
+  return async (req: Request, res: Response) => {
+    try {
+      const user = security.authenticatedUsers.from(req);
+
+      if (user && user.data.email !== req.body.author) {
+
+        const reviewData = {
+          product: req.params.id,
+          message: req.body.message,
+          author: req.body.author,
+          likesCount: 0,
+          likedBy: [],
+        };
+
+        const review = await reviews.create(reviewData);
+
+        res.status(201).json({ status: 'success', review });
+      } else {
+        res.status(403).json({ error: 'Unauthorized' });
+      }
+    } catch (error) {
+      res.status(500).json(utils.getErrorMessage(error));
+    }
+  };
+};
