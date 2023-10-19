@@ -72,49 +72,62 @@ export const getVerdict = (vulnLines: number[], neutralLines: number[], selected
 }
 
 exports.checkVulnLines = () => async (req: Request<Record<string, unknown>, Record<string, unknown>, VerdictRequestBody>, res: Response, next: NextFunction) => {
-  const key = req.body.key
-  let snippetData
+  const key = req.body.key;
   try {
-    snippetData = await retrieveCodeSnippet(key)
-    if (snippetData == null) {
-      res.status(404).json({ status: 'error', error: `No code challenge for challenge key: ${key}` })
-      return
+    const snippetData = await retrieveCodeSnippet(key);
+    
+    if (snippetData === null) {
+      return res.status(404).json({ status: 'error', error: `No code challenge for challenge key: ${key}` });
+    }
+
+    const vulnLines: number[] = snippetData.vulnLines;
+    const neutralLines: number[] = snippetData.neutralLines;
+    const selectedLines: number[] = req.body.selectedLines;
+    const verdict = getVerdict(vulnLines, neutralLines, selectedLines);
+
+    if (verdict) {
+      await challengeUtils.solveFindIt(key);
+      return res.status(200).json({ verdict: true });
+    } else {
+      const codingChallengeInfos = await loadCodingChallengeInfos(key);
+      let hint;
+
+      if (codingChallengeInfos?.hints) {
+        const attemptNumber = accuracy.getFindItAttempts(key);
+        
+        if (attemptNumber > codingChallengeInfos.hints.length) {
+          if (vulnLines.length === 1) {
+            hint = res.__('Line {{vulnLine}} is responsible for this vulnerability or security flaw. Select it and submit to proceed.', { vulnLine: vulnLines[0].toString() });
+          } else {
+            hint = res.__('Lines {{vulnLines}} are responsible for this vulnerability or security flaw. Select them and submit to proceed.', { vulnLines: vulnLines.toString() });
+          }
+        } else {
+          const nextHint = codingChallengeInfos.hints[attemptNumber - 1];
+          
+          if (nextHint) {
+            hint = res.__(nextHint);
+          }
+        }
+      }
+
+      accuracy.storeFindItVerdict(key, false);
+      return res.status(200).json({ verdict: false, hint });
     }
   } catch (error) {
-    const statusCode = setStatusCode(error)
-    res.status(statusCode).json({ status: 'error', error: utils.getErrorMessage(error) })
-    return
+    const statusCode = setStatusCode(error);
+    return res.status(statusCode).json({ status: 'error', error: utils.getErrorMessage(error) });
   }
-  const vulnLines: number[] = snippetData.vulnLines
-  const neutralLines: number[] = snippetData.neutralLines
-  const selectedLines: number[] = req.body.selectedLines
-  const verdict = getVerdict(vulnLines, neutralLines, selectedLines)
-  let hint
-  if (fs.existsSync('./data/static/codefixes/' + key + '.info.yml')) {
-    const codingChallengeInfos = yaml.load(fs.readFileSync('./data/static/codefixes/' + key + '.info.yml', 'utf8'))
-    if (codingChallengeInfos?.hints) {
-      if (accuracy.getFindItAttempts(key) > codingChallengeInfos.hints.length) {
-        if (vulnLines.length === 1) {
-          hint = res.__('Line {{vulnLine}} is responsible for this vulnerability or security flaw. Select it and submit to proceed.', { vulnLine: vulnLines[0].toString() })
-        } else {
-          hint = res.__('Lines {{vulnLines}} are responsible for this vulnerability or security flaw. Select them and submit to proceed.', { vulnLines: vulnLines.toString() })
-        }
+}
+
+async function loadCodingChallengeInfos(key) {
+  return new Promise((resolve, reject) => {
+    fs.readFile('./data/static/codefixes/' + key + '.info.yml', 'utf8', (err, data) => {
+      if (err) {
+        resolve(null);
       } else {
-        const nextHint = codingChallengeInfos.hints[accuracy.getFindItAttempts(key) - 1] // -1 prevents after first attempt
-        if (nextHint) hint = res.__(nextHint)
+        const codingChallengeInfos = yaml.load(data);
+        resolve(codingChallengeInfos);
       }
-    }
-  }
-  if (verdict) {
-    await challengeUtils.solveFindIt(key)
-    res.status(200).json({
-      verdict: true
-    })
-  } else {
-    accuracy.storeFindItVerdict(key, false)
-    res.status(200).json({
-      verdict: false,
-      hint
-    })
-  }
+    });
+  });
 }
